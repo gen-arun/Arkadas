@@ -28,6 +28,7 @@
         textarea { flex: 1; border: none; resize: none; padding: 12px; border-radius: 25px; background: #f0f0f0; font-size: 16px; }
         textarea:focus { outline: none; background: white; }
         .send-btn { background: #25d366; color: white; border: none; width: 50px; height: 50px; border-radius: 50%; cursor: pointer; font-size: 20px; }
+        .send-btn[disabled] { opacity: 0.6; cursor: default; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -37,10 +38,10 @@
         🗣️ Arun ↔ Elopar Chat
         <button class="clear-btn" onclick="clearAllMessages()">🗑️</button>
     </div>
-    <div class="messages" id="messages"></div>
+    <div class="messages" id="messages" aria-live="polite"></div>
     <div class="input-area">
         <textarea id="messageInput" placeholder="Type your message (English)..."></textarea>
-        <button class="send-btn" onclick="sendMessage()">➤</button>
+        <button id="sendBtn" class="send-btn">➤</button>
     </div>
     
     <script>
@@ -64,14 +65,32 @@
         
         function addMessage(originalText, translatedText, author, isSent) {
             const messagesDiv = document.getElementById('messages');
+
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
-            messageDiv.innerHTML = `
-                <div class="message-author">${author}</div>
-                <div class="message-bubble">${originalText}</div>
-                <div class="message-bubble-translated">${translatedText}</div>
-                <div class="message-time">${new Date().toLocaleTimeString()}</div>
-            `;
+
+            const authorDiv = document.createElement('div');
+            authorDiv.className = 'message-author';
+            authorDiv.textContent = author;
+            messageDiv.appendChild(authorDiv);
+
+            const origDiv = document.createElement('div');
+            origDiv.className = 'message-bubble';
+            origDiv.textContent = originalText || '';
+            messageDiv.appendChild(origDiv);
+
+            if (translatedText) {
+                const transDiv = document.createElement('div');
+                transDiv.className = 'message-bubble-translated';
+                transDiv.textContent = translatedText;
+                messageDiv.appendChild(transDiv);
+            }
+
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'message-time';
+            timeDiv.textContent = new Date().toLocaleTimeString();
+            messageDiv.appendChild(timeDiv);
+
             messagesDiv.appendChild(messageDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
@@ -92,34 +111,45 @@
             }
         }
         
+        const sendBtn = document.getElementById('sendBtn');
+        sendBtn.addEventListener('click', sendMessage);
+
         async function sendMessage() {
             const input = document.getElementById('messageInput');
             const text = input.value.trim();
             if (!text) return;
-            
-          
-            
-            const translated = await translateText(text, MY_LANG, OTHER_LANG);
-            
-            const messageData = { 
-                originalText: text,
-                translatedText: translated,
-                author: USER_NAME, 
-                senderLang: MY_LANG, 
-                timestamp: Date.now() 
-            };
-            
-            db.ref('messages').push(messageData);
-            input.value = '';
+
+            // Disable send while translating/sending
+            sendBtn.disabled = true;
+            const prevLabel = sendBtn.textContent;
+            sendBtn.textContent = '…';
+
+            try {
+                const translated = await translateText(text, MY_LANG, OTHER_LANG);
+                const messageData = { 
+                    originalText: text,
+                    translatedText: translated,
+                    author: USER_NAME, 
+                    senderLang: MY_LANG, 
+                    timestamp: Date.now() 
+                };
+                await db.ref('messages').push(messageData);
+                input.value = '';
+            } catch (err) {
+                console.error('Send failed', err);
+                alert('Send failed: ' + (err.message || err));
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = prevLabel;
+            }
         }
         
         db.ref('messages').orderByChild('timestamp').limitToLast(100).on('child_added', (snapshot) => {
-    const msg = snapshot.val();
-    console.log("Arun got message:", msg.author, msg.originalText);  // ← this is the log
-    const isSent = msg.author === USER_NAME;
-
-    addMessage(msg.originalText || '', msg.translatedText || '', msg.author, isSent);
-});
+            const msg = snapshot.val();
+            if (!msg) return;
+            const isSent = msg.author === USER_NAME;
+            addMessage(msg.originalText || '', msg.translatedText || '', msg.author || 'Unknown', isSent);
+        });
 
 
         function clearAllMessages() {
@@ -138,4 +168,3 @@
     </script>
 </body>
 </html>
-
