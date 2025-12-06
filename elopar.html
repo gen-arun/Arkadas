@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Elopar's Turkish Chat</title>
+    <meta charset="UTF-8">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; height: 100vh; display: flex; flex-direction: column; background: #efeaea; }
+        .chat-header { background: #075e54; color: white; padding: 15px; text-align: center; font-weight: bold; position: relative; }
+        .clear-btn { position: absolute; right: 15px; top: 10px; background: none; border: none; color: white; font-size: 16px; cursor: pointer; }
+        .messages { flex: 1; overflow-y: auto; padding: 20px; background: #efeaea; }
+        .message { margin: 10px 0; display: flex; flex-direction: column; max-width: 70%; }
+        .message.sent { align-self: flex-end; align-items: flex-end; }
+        .message.received { align-self: flex-start; align-items: flex-start; }
+        .message-author { font-size: 12px; font-weight: bold; opacity: 0.8; margin-bottom: 4px; }
+        .sent .message-author { color: #075e54; }
+        .received .message-author { color: #666; }
+        .message-bubble, .message-bubble-translated {
+            padding: 12px 16px; border-radius: 18px; word-wrap: break-word; max-width: 100%;
+        }
+        .message-bubble { background: #dcf8c6; }
+        .message.received .message-bubble { background: white; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .message-bubble-translated {
+            background: #f0f0f0; margin-top: 4px; font-style: bold; color: blue;
+        }
+        .message-time { font-size: 11px; opacity: 0.7; margin-top: 4px; }
+        .input-area { background: white; padding: 15px; border-top: 1px solid #ddd; display: flex; gap: 10px; }
+        textarea { flex: 1; border: none; resize: none; padding: 12px; border-radius: 25px; background: #f0f0f0; font-size: 16px; }
+        textarea:focus { outline: none; background: white; }
+        .send-btn { background: #25d366; color: white; border: none; width: 50px; height: 50px; border-radius: 50%; cursor: pointer; font-size: 20px; }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+</head>
+<body>
+    <div class="chat-header">
+        🗣️ Arun ↔ Elopar Chat
+        <button class="clear-btn" onclick="clearAllMessages()">🗑️</button>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="input-area">
+        <textarea id="messageInput" placeholder="Mesajınızı yazın ([translate:Türkçe])..."></textarea>
+        <button class="send-btn" onclick="sendMessage()">➤</button>
+    </div>
+    
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyA5b5KMN-SoLiIphf95-DJnSUatBqiFrSQ",
+            authDomain: "arkadas-dili.firebaseapp.com",
+            databaseURL: "https://arkadas-dili-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "arkadas-dili",
+            storageBucket: "arkadas-dili.firebasestorage.app",
+            messagingSenderId: "466993342276",
+            appId: "1:466993342276:web:1103c3aa04220ca1b11911",
+            measurementId: "G-MD7X50X0G1"
+        };
+        
+        const eloparApp = firebase.initializeApp(firebaseConfig, "eloparApp");
+	const db = eloparApp.database();
+
+        
+        const USER_NAME = 'Elopar';
+        const MY_LANG = 'tr';
+        const OTHER_LANG = 'en';
+
+        function addMessage(originalText, translatedText, author, isSent) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
+            messageDiv.innerHTML = `
+                <div class="message-author">${author}</div>
+                <div class="message-bubble">${originalText}</div>
+                <div class="message-bubble-translated">${translatedText}</div>
+                <div class="message-time">${new Date().toLocaleTimeString()}</div>
+            `;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        async function translateText(text, sourceLang, targetLang) {
+            if (!text || !text.trim()) return "";
+            const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                if (data.responseStatus !== 200 || !data.responseData || !data.responseData.translatedText) {
+                    return "[translate:Bir çeviri hatası oluştu. Lütfen metninizi daha küçük parçalara bölerek deneyin.]";
+                }
+                return data.responseData.translatedText.replace(/pplx:\/\/[^ ]*/g, '').trim();
+            } catch (e) {
+                console.error('Translation failed:', e);
+                return "[translate:Bir çeviri hatası oluştu. Lütfen metninizi daha küçük parçalara bölerek deneyin.]";
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            if (!text) return;
+            
+           
+            
+            const translated = await translateText(text, MY_LANG, OTHER_LANG);
+
+            const messageData = { 
+                originalText: text,
+                translatedText: translated,
+                author: USER_NAME, 
+                senderLang: MY_LANG, 
+                timestamp: Date.now() 
+            };
+            db.ref('messages').push(messageData);
+            input.value = '';
+        }
+        
+        db.ref('messages').orderByChild('timestamp').limitToLast(100).on('child_added', (snapshot) => {
+    const msg = snapshot.val();
+    const isSent = msg.author === USER_NAME;
+
+    addMessage(msg.originalText || '', msg.translatedText || '', msg.author, isSent);
+});
+
+
+        function clearAllMessages() {
+            if (confirm('Tüm mesajları silmek istiyor musunuz?')) {
+                db.ref('messages').remove();
+                document.getElementById('messages').innerHTML = '';
+            }
+        }
+        
+        document.getElementById('messageInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
