@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Arun's English Chat (Voice)</title>
+    <meta charset="UTF-8">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; height: 100vh; display: flex; flex-direction: column; background: #efeaea; }
+        .chat-header { background: #075e54; color: white; padding: 15px; text-align: center; font-weight: bold; position: relative; }
+        .clear-btn { position: absolute; right: 15px; top: 10px; background: none; border: none; color: white; font-size: 16px; cursor: pointer; }
+        .messages { flex: 1; overflow-y: auto; padding: 20px; background: #efeaea; }
+        .message { margin: 10px 0; display: flex; flex-direction: column; max-width: 70%; position: relative; }
+        .message.sent { align-self: flex-end; align-items: flex-end; }
+        .message.received { align-self: flex-start; align-items: flex-start; }
+        .message-author { font-size: 12px; font-weight: bold; opacity: 0.8; margin-bottom: 4px; }
+        .sent .message-author { color: #075e54; }
+        .received .message-author { color: #666; }
+        .message-bubble, .message-bubble-translated {
+            padding: 12px 16px; border-radius: 18px; word-wrap: break-word; max-width: 100%;
+        }
+        .message-bubble { background: #dcf8c6; }
+        .message.received .message-bubble { background: white; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .message-bubble-translated {
+            background: #ffffff; margin-top: 4px; font-weight: bold; color: blue;
+        }
+        .message-time { font-size: 11px; opacity: 0.7; margin-top: 4px; }
+        .speak-icon { 
+            cursor: pointer; 
+            font-size: 14px; 
+            opacity: 0.6; 
+            margin-left: 8px;
+            transition: opacity 0.2s;
+        }
+        .speak-icon:hover { opacity: 1; }
+        .speak-icon.speaking { 
+            opacity: 1; 
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+        .input-area { background: white; padding: 15px; border-top: 1px solid #ddd; display: flex; gap: 10px; }
+        textarea { flex: 1; border: none; resize: none; padding: 12px; border-radius: 25px; background: #f0f0f0; font-size: 16px; }
+        textarea:focus { outline: none; background: white; }
+        .voice-btn { 
+            background: #2196F3; 
+            color: white; 
+            border: none; 
+            width: 50px; 
+            height: 50px; 
+            border-radius: 50%; 
+            cursor: pointer; 
+            font-size: 20px;
+            transition: all 0.3s;
+        }
+        .voice-btn.recording { 
+            background: #f44336; 
+            animation: pulse 1.5s infinite;
+        }
+        .send-btn { background: #25d366; color: white; border: none; width: 50px; height: 50px; border-radius: 50%; cursor: pointer; font-size: 20px; }
+        .send-btn[disabled] { opacity: 0.6; cursor: default; }
+        .status-bar {
+            background: #fff3cd;
+            color: #856404;
+            padding: 8px 15px;
+            text-align: center;
+            font-size: 13px;
+            border-top: 1px solid #ffc107;
+            display: none;
+        }
+        .status-bar.show { display: block; }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+</head>
+<body>
+    <div class="chat-header">
+        🗣️ Arun ↔ Elopar Chat (Voice Enabled)
+        <button class="clear-btn" onclick="clearAllMessages()">🗑️</button>
+    </div>
+    <div class="status-bar" id="statusBar"></div>
+    <div class="messages" id="messages" aria-live="polite"></div>
+    <div class="input-area">
+        <button id="voiceBtn" class="voice-btn" title="Click to speak">🎤</button>
+        <textarea id="messageInput" placeholder="Type or speak your message (English)..."></textarea>
+        <button id="sendBtn" class="send-btn">➤</button>
+    </div>
+    
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyA5b5KMN-SoLiIphf95-DJnSUatBqiFrSQ",
+            authDomain: "arkadas-dili.firebaseapp.com",
+            databaseURL: "https://arkadas-dili-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "arkadas-dili",
+            storageBucket: "arkadas-dili.firebasestorage.app",
+            messagingSenderId: "466993342276",
+            appId: "1:466993342276:web:1103c3aa04220ca1b11911",
+            measurementId: "G-MD7X50X0G1"
+        };
+        
+        const arunApp = firebase.initializeApp(firebaseConfig, "arunApp");
+        const db = arunApp.database();
+
+        const USER_NAME = 'Arun';
+        const MY_LANG = 'en';
+        const OTHER_LANG = 'tr';
+        
+        let recognition;
+        let isRecording = false;
+
+        // Initialize Speech Recognition
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = (event) => {
+                let finalTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript + ' ';
+                    }
+                }
+                if (finalTranscript) {
+                    const input = document.getElementById('messageInput');
+                    input.value += finalTranscript;
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                showStatus('Voice input error: ' + event.error, 3000);
+                stopRecording();
+            };
+
+            recognition.onend = () => {
+                stopRecording();
+            };
+        }
+
+        function startRecording() {
+            isRecording = true;
+            const btn = document.getElementById('voiceBtn');
+            btn.classList.add('recording');
+            btn.textContent = '⏹️';
+            showStatus('Listening... Speak now!');
+        }
+
+        function stopRecording() {
+            isRecording = false;
+            const btn = document.getElementById('voiceBtn');
+            btn.classList.remove('recording');
+            btn.textContent = '🎤';
+            hideStatus();
+        }
+
+        document.getElementById('voiceBtn').addEventListener('click', () => {
+            if (!recognition) {
+                alert('Voice input not supported in this browser. Please use Chrome or Edge.');
+                return;
+            }
+            if (isRecording) {
+                recognition.stop();
+            } else {
+                recognition.start();
+                startRecording();
+            }
+        });
+
+        function showStatus(message, duration) {
+            const statusBar = document.getElementById('statusBar');
+            statusBar.textContent = message;
+            statusBar.classList.add('show');
+            if (duration) {
+                setTimeout(() => hideStatus(), duration);
+            }
+        }
+
+        function hideStatus() {
+            document.getElementById('statusBar').classList.remove('show');
+        }
+
+        function speakText(text, lang) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = lang === 'en' ? 'en-US' : 'tr-TR';
+                utterance.rate = 0.9;
+                utterance.pitch = 1;
+                window.speechSynthesis.speak(utterance);
+            } else {
+                alert('Text-to-speech not supported in this browser');
+            }
+        }
+
+        function addMessage(originalText, translatedText, author, isSent, senderLang) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
+
+            const authorDiv = document.createElement('div');
+            authorDiv.className = 'message-author';
+            authorDiv.textContent = author;
+            messageDiv.appendChild(authorDiv);
+
+            const origDiv = document.createElement('div');
+            origDiv.className = 'message-bubble';
+            origDiv.innerHTML = originalText || '';
+            
+            const speakOrig = document.createElement('span');
+            speakOrig.className = 'speak-icon';
+            speakOrig.textContent = '🔊';
+            speakOrig.title = 'Listen to original';
+            speakOrig.onclick = () => {
+                speakOrig.classList.add('speaking');
+                speakText(originalText, senderLang || MY_LANG);
+                setTimeout(() => speakOrig.classList.remove('speaking'), 2000);
+            };
+            origDiv.appendChild(speakOrig);
+            messageDiv.appendChild(origDiv);
+
+            if (translatedText) {
+                const transDiv = document.createElement('div');
+                transDiv.className = 'message-bubble-translated';
+                transDiv.innerHTML = translatedText;
+                
+                const speakTrans = document.createElement('span');
+                speakTrans.className = 'speak-icon';
+                speakTrans.textContent = '🔊';
+                speakTrans.title = 'Listen to translation';
+                speakTrans.onclick = () => {
+                    speakTrans.classList.add('speaking');
+                    speakText(translatedText, senderLang === MY_LANG ? OTHER_LANG : MY_LANG);
+                    setTimeout(() => speakTrans.classList.remove('speaking'), 2000);
+                };
+                transDiv.appendChild(speakTrans);
+                messageDiv.appendChild(transDiv);
+            }
+
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'message-time';
+            timeDiv.textContent = new Date().toLocaleTimeString();
+            messageDiv.appendChild(timeDiv);
+
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        async function translateText(text, sourceLang, targetLang) {
+            if (!text || !text.trim()) return "";
+            const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                if (data.responseStatus !== 200 || !data.responseData || !data.responseData.translatedText) {
+                    return "There is a translation error. Try to make your text into smaller parts.";
+                }
+                return data.responseData.translatedText.replace(/pplx:\/\/[^ ]*/g, '').trim();
+            } catch (e) {
+                console.error('Translation failed:', e);
+                return "There is a translation error. Try to make your text into smaller parts.";
+            }
+        }
+        
+        const sendBtn = document.getElementById('sendBtn');
+        sendBtn.addEventListener('click', sendMessage);
+
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            sendBtn.disabled = true;
+            const prevLabel = sendBtn.textContent;
+            sendBtn.textContent = '…';
+
+            try {
+                const translated = await translateText(text, MY_LANG, OTHER_LANG);
+                const messageData = { 
+                    originalText: text,
+                    translatedText: translated,
+                    author: USER_NAME, 
+                    senderLang: MY_LANG, 
+                    timestamp: Date.now() 
+                };
+                await db.ref('messages').push(messageData);
+                input.value = '';
+            } catch (err) {
+                console.error('Send failed', err);
+                alert('Send failed: ' + (err.message || err));
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = prevLabel;
+            }
+        }
+        
+        db.ref('messages').orderByChild('timestamp').limitToLast(100).on('child_added', (snapshot) => {
+            const msg = snapshot.val();
+            if (!msg) return;
+            const isSent = msg.author === USER_NAME;
+            addMessage(msg.originalText || '', msg.translatedText || '', msg.author || 'Unknown', isSent, msg.senderLang);
+        });
+
+        function clearAllMessages() {
+            if (confirm('Delete all messages?')) {
+                db.ref('messages').remove();
+                document.getElementById('messages').innerHTML = '';
+            }
+        }
+        
+        document.getElementById('messageInput').addEventListener('keypress', (e) => {
+            if(e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
